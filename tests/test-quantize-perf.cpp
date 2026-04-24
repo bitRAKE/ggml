@@ -270,6 +270,30 @@ int main(int argc, char * argv[]) {
             continue;
         }
 
+        // Handle types that only have from_float (e.g. q8_K, q8_1): still
+        // bench quantize_row_q if requested; skip ops that need to_float.
+        const bool have_from_float = (qfns_cpu->from_float != nullptr);
+        const bool have_to_float   = (qfns->to_float   != nullptr);
+        if (have_from_float && !have_to_float && params.op_quantize_row_q) {
+            printf("%s\n", ggml_type_name(type));
+            ggml_quantize_init(type);
+            printf("  quantize_row_q\n");
+            for (size_t size : params.test_sizes) {
+                if (size % ggml_blck_size(type) != 0) {
+                    // skip sizes not divisible by the quant block
+                    continue;
+                }
+                printf("    %zu values (%.2f MB)\n", size, 4*size/(float)(1024*1024));
+                auto quantize_fn = [&](void) -> float {
+                    qfns_cpu->from_float(test_data1, test_q1, size);
+                    return test_q1[0];
+                };
+                size_t quantized_size = ggml_row_size(type, size);
+                benchmark_function(size, quantized_size, iterations, quantize_fn);
+            }
+            printf("\n");
+            continue;
+        }
         if (qfns_cpu->from_float && qfns->to_float) {
             printf("%s\n", ggml_type_name(type));
 
